@@ -6,6 +6,11 @@
     <title>2D Splatoon - Ultimate Edition</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #e0e0e0; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        .scroll-btn { display: none; background: #333; color: white; border: none; padding: 10px; font-size: 20px; cursor: pointer; flex: 1; margin: 0 5px; border-radius: 5px; }
+        .smartphone-mode .scroll-btn { display: block; }
+        .smartphone-mode select { height: 150px !important; font-size: 16px; }
+        .smartphone-mode .panel { padding: 10px !important; }
+        .color-picker { margin: 5px; }
         canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
         #bgCanvas { z-index: 1; } #fgCanvas { z-index: 2; }
         
@@ -546,6 +551,27 @@
         }
 
         update() {
+            if (this.isKraken) {
+                this.specialTimer--;
+                this.hp = this.maxHp; // Invincible
+                let speed = 6;
+                this.x += Math.cos(this.angle) * speed; this.y += Math.sin(this.angle) * speed;
+                let p = splat(this.x, this.y, 40, this.team, this); this.paintPoints += p;
+                for (let pl of players) if (pl.team !== this.team && Math.hypot(pl.x - this.x, pl.y - this.y) < 50) pl.takeDamage(120, this);
+                if (this.specialTimer <= 0) { this.isKraken = false; this.isSpecialActive = false; }
+                this.x = Math.max(this.radius, Math.min(STAGE_W - this.radius, this.x)); this.y = Math.max(this.radius, Math.min(STAGE_H - this.radius, this.y));
+                return;
+            }
+            if (this.isSpider) {
+                this.specialTimer--;
+                if (this.attackHeldTimer === 1 && this.ink >= 5) {
+                    this.ink -= 5;
+                    this.x += Math.cos(this.angle) * 300; this.y += Math.sin(this.angle) * 300; // Zipcast forward
+                    let p = splat(this.x, this.y, 100, this.team, this); this.paintPoints += p;
+                    for (let pl of players) if (pl.team !== this.team && Math.hypot(pl.x - this.x, pl.y - this.y) < 100) pl.takeDamage(80, this);
+                }
+                if (this.specialTimer <= 0) { this.isSpider = false; this.isSpecialActive = false; }
+            }
             if (this.isSharking) {
                 this.specialTimer--;
                 this.x += Math.cos(this.angle) * 15; this.y += Math.sin(this.angle) * 15;
@@ -630,7 +656,7 @@
                     this.angle = Math.atan2(worldMouseY - this.y, worldMouseX - this.x);
                 }
 
-                if ([11, 12, 13].includes(this.weapon.id)) { // Chargers
+                if ([11, 12, 13, 29, 32].includes(this.weapon.id)) { // Chargers
                     if (wantsToAttack) {
                         this.isCharging = true;
                         this.chargeTimer = Math.min(60, this.chargeTimer + 1);
@@ -747,7 +773,7 @@
             if (this.isHiding) speedMult *= 1.8; else if (onOwnInk) speedMult *= 1.2; else if (onEnemyInk) speedMult *= 0.5;
             if (isShooting && !this.isHiding && !this.salmonType) { 
                 if ([5, 6, 7].includes(this.weapon.id)) speedMult *= 0.6; 
-                else if ([11, 12, 13].includes(this.weapon.id)) speedMult *= 0.3; 
+                else if ([11, 12, 13, 29, 32].includes(this.weapon.id)) speedMult *= 0.3; 
                 else if ([17, 18, 19, 20, 25, 26].includes(this.weapon.id)) speedMult *= 1.2;
                 if (this.isSpecialActive && this.weapon.sp === 'ENERGY_STAND') speedMult *= 1.5; 
                 else speedMult *= 0.7; 
@@ -810,6 +836,12 @@
                         let s = new Inkstrike(tx, ty, this.team, this, 150, 'METEOR');
                         s.radius = 350; strikes.push(s);
                     }
+                    else if (this.weapon.sp === 'KRAKEN') {
+                        this.isSpecialActive = true; this.specialTimer = 420; this.isKraken = true;
+                    }
+                    else if (this.weapon.sp === 'SPIDER') {
+                        this.isSpecialActive = true; this.specialTimer = 480; this.isSpider = true;
+                    }
                 }
             } else if (isShooting) { this.shoot(dx, dy); }
 
@@ -861,7 +893,7 @@
         }
         
         takeDamage(amt, attacker) {
-            if (this.isDead || (this.isSpecialActive && this.weapon.sp === 'SPLASHDOWN') || this.isSharking) return;
+            if (this.isDead || (this.isSpecialActive && (this.weapon.sp === 'SPLASHDOWN' || this.isKraken)) || this.isSharking) return;
             if (this.weapon && this.weapon.id === 22 && (this.prevAttack || this.attackHeldTimer > 5)) {
                 if (this.shieldHp === undefined) this.shieldHp = 300;
                 let block = Math.min(amt, this.shieldHp);
@@ -872,7 +904,7 @@
             this.hp -= amt;
             if(this.salmonType === 'OKASHIRA') {
                 document.getElementById('okashiraHpBar').style.width = `${Math.max(0, (this.hp/this.maxHp)*100)}%`;
-                if(this.hp <= 0) { unlockAchievement('okashira_kill', 'オカシラハンター'); endGame('EXTRA WAVE CLEAR!!', 'オカシラシャケを撃破した！'); }
+                if(this.hp <= 0) { unlockAchievement('okashira_kill', 'オカシラハンター'); if(hazardLevel >= 3.33) unlockAchievement('salmon_333', '伝説のアルバイター (333%クリア)'); endGame('EXTRA WAVE CLEAR!!', 'オカシラシャケを撃破した！'); }
             }
             if (this.hp <= 0) {
                 if(attacker && attacker.kills !== undefined) attacker.kills++;
@@ -956,6 +988,11 @@
                 else if (wId === 25) { fgCtx.fillRect(radius - 2, -8, 8, 16); fgCtx.fillRect(radius - 2, 4, 8, 16); fgCtx.fillStyle = '#ff1493'; fgCtx.fillRect(radius, -6, 2, 12); }
                 else if (wId === 26) { fgCtx.fillRect(radius - 2, -2, 20, 4); fgCtx.fillStyle = '#ffd700'; fgCtx.fillRect(radius + 18, -10, 4, 20); }
                 else if (wId === 27) { fgCtx.fillRect(radius - 2, -2, 15, 4); fgCtx.fillStyle = TEAM_COLORS[this.team]; fgCtx.beginPath(); fgCtx.arc(radius + 15, 0, 8, 0, Math.PI*2); fgCtx.fill(); }
+                else if (wId === 28) { fgCtx.fillRect(radius - 2, -4, 20, 8); fgCtx.fillStyle = '#555'; fgCtx.fillRect(radius + 15, -6, 8, 12); }
+                else if (wId === 29) { fgCtx.fillRect(radius - 2, -2, 28, 4); fgCtx.fillStyle = TEAM_COLORS[this.team]; fgCtx.fillRect(radius + 10, -4, 10, 8); }
+                else if (wId === 31 || wId === 34) { fgCtx.fillRect(radius - 2, -4, 18, 8); fgCtx.fillStyle = (wId===34)?'#fff':'#333'; fgCtx.fillRect(radius + 12, -5, 6, 10); }
+                else if (wId === 32) { fgCtx.fillRect(radius - 2, -3, 30, 6); fgCtx.fillStyle = '#111'; fgCtx.fillRect(radius + 20, -5, 12, 10); }
+                else if (wId === 33) { fgCtx.fillRect(radius - 2, -3, 22, 6); fgCtx.fillStyle = TEAM_COLORS[this.team]; fgCtx.fillRect(radius + 18, -6, 6, 12); }
             }
             fgCtx.restore();
             
@@ -1366,6 +1403,9 @@
             if (p.lr) { fgCtx.strokeStyle = '#ff7f00'; fgCtx.lineWidth = 6; fgCtx.beginPath(); fgCtx.arc(0, 0, radius, 0, Math.PI*2); fgCtx.stroke(); fgCtx.fillStyle = '#fff'; fgCtx.font = '10px Arial'; fgCtx.fillText("HELP", -12, 4); fgCtx.restore(); continue; }
             
             if (p.sp && p.w !== 4 && p.w !== 26 && p.w !== 28) { fgCtx.beginPath(); fgCtx.arc(0, 0, 160, 0, Math.PI * 2); fgCtx.fillStyle = TEAM_COLORS[p.t] + '33'; fgCtx.fill(); }
+            if (p.sp && p.w === 31) { // Approximate Kraken in replay
+                fgCtx.fillStyle = TEAM_COLORS[p.t]; fgCtx.beginPath(); fgCtx.moveTo(radius + 10, 0); fgCtx.lineTo(-radius, radius + 5); fgCtx.lineTo(-radius, -radius - 5); fgCtx.fill(); fgCtx.restore(); return;
+            }
             if (p.w === 22 && p.cg) {
                 fgCtx.strokeStyle = `rgba(255,255,255,0.8)`; fgCtx.lineWidth = 4;
                 fgCtx.beginPath(); fgCtx.arc(0, 0, radius+15, Math.PI/2, 3*Math.PI/2); fgCtx.stroke(); // Flipped angle for replay to show visually
@@ -1402,6 +1442,11 @@
                 else if (p.w === 25) { fgCtx.fillRect(radius - 2, -8, 8, 16); fgCtx.fillRect(radius - 2, 4, 8, 16); fgCtx.fillStyle = '#ff1493'; fgCtx.fillRect(radius, -6, 2, 12); }
                 else if (p.w === 26) { fgCtx.fillRect(radius - 2, -2, 20, 4); fgCtx.fillStyle = '#ffd700'; fgCtx.fillRect(radius + 18, -10, 4, 20); }
                 else if (p.w === 27) { fgCtx.fillRect(radius - 2, -2, 15, 4); fgCtx.fillStyle = TEAM_COLORS[p.t]; fgCtx.beginPath(); fgCtx.arc(radius + 15, 0, 8, 0, Math.PI*2); fgCtx.fill(); }
+                else if (p.w === 28) { fgCtx.fillRect(radius - 2, -4, 20, 8); fgCtx.fillStyle = '#555'; fgCtx.fillRect(radius + 15, -6, 8, 12); }
+                else if (p.w === 29) { fgCtx.fillRect(radius - 2, -2, 28, 4); fgCtx.fillStyle = TEAM_COLORS[p.t]; fgCtx.fillRect(radius + 10, -4, 10, 8); }
+                else if (p.w === 31 || p.w === 34) { fgCtx.fillRect(radius - 2, -4, 18, 8); fgCtx.fillStyle = (p.w===34)?'#fff':'#333'; fgCtx.fillRect(radius + 12, -5, 6, 10); }
+                else if (p.w === 32) { fgCtx.fillRect(radius - 2, -3, 30, 6); fgCtx.fillStyle = '#111'; fgCtx.fillRect(radius + 20, -5, 12, 10); }
+                else if (p.w === 33) { fgCtx.fillRect(radius - 2, -3, 22, 6); fgCtx.fillStyle = TEAM_COLORS[p.t]; fgCtx.fillRect(radius + 18, -6, 6, 12); }
             }
             fgCtx.restore();
             
